@@ -51,8 +51,13 @@ func Summarize(key model.StreamKey, w window.Window, points []EventPoint, confir
 	}
 	sum.MaxReportLatency = maxLatency
 	sum.MaxWatermark = maxWM
-	if lag := w.End.Sub(maxWM); lag > 0 {
-		sum.FreshnessLag = lag
+	// Freshness lag is only meaningful when the window actually observed a
+	// data watermark; an empty window conveys "no output" via throughput, not
+	// a bogus maximal freshness lag computed against the zero time.
+	if !maxWM.IsZero() {
+		if lag := w.End.Sub(maxWM); lag > 0 {
+			sum.FreshnessLag = lag
+		}
 	}
 	secs := w.End.Sub(w.Start).Seconds()
 	if secs > 0 {

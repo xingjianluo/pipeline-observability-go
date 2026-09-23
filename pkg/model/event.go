@@ -25,6 +25,11 @@ type RunEvent struct {
 	EventTime   time.Time // when the run actually happened (business time)
 	WatermarkTs time.Time // data watermark carried by the producer at report time
 	Records     int64     // number of records produced by the run
+	// WatermarkOnly marks a control event that only advances the watermark.
+	// It is buffered per stream for ordering but excluded from window metrics
+	// (counts, records, latency, freshness watermark), so watermark progress
+	// can never make a data window look healthier or busier.
+	WatermarkOnly bool
 }
 
 // Key returns the stream the event belongs to.
@@ -43,6 +48,8 @@ func (e RunEvent) Validate() error {
 		return fmt.Errorf("event %q: event time is required", e.EventID)
 	case e.Records < 0:
 		return fmt.Errorf("event %q: records must be non-negative, got %d", e.EventID, e.Records)
+	case e.WatermarkOnly && e.Records != 0:
+		return fmt.Errorf("event %q: watermark-only control event must carry zero records", e.EventID)
 	}
 	return nil
 }

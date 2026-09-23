@@ -48,3 +48,16 @@ func Fatalf(t *testing.T, evs []model.RunEvent, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	t.Fatalf("%s\ninputs:%s", msg, DumpEvents(evs))
 }
+
+// WM builds a watermark-only control event that advances the watermark
+// without contributing to any window's metrics.
+func WM(id, job, dataset string, at time.Time) model.RunEvent {
+	return model.RunEvent{
+		EventID:       id,
+		JobID:         job,
+		Dataset:       dataset,
+		EventTime:     at,
+		WatermarkTs:   at,
+		WatermarkOnly: true,
+	}
+}

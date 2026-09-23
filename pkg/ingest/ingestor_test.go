@@ -37,7 +37,7 @@ func TestOutOfOrderWithinLatenessIsAccepted(t *testing.T) {
 		// later arrival, older event time, still inside window 0
 		testhelp.Ev("e2", "job1", "d1", base.Add(5*time.Second), base.Add(5*time.Second), 50),
 		// push watermark to 10:02:00 -> window 0 confirms
-		testhelp.Ev("e3", "job1", "d1", base.Add(2*time.Minute), base.Add(2*time.Minute), 0),
+		testhelp.WM("e3", "job1", "d1", base.Add(2*time.Minute)),
 	}
 	var rs []model.IngestResult
 	for _, e := range evs {
@@ -68,7 +68,7 @@ func TestLateBeyondLatenessRejected(t *testing.T) {
 	evs := []model.RunEvent{
 		testhelp.Ev("e1", "job1", "d1", base.Add(10*time.Second), base.Add(10*time.Second), 100),
 		// watermark 10:03:00 closes windows 0 and 1
-		testhelp.Ev("wm", "job1", "d1", base.Add(3*time.Minute), base.Add(3*time.Minute), 0),
+		testhelp.WM("wm", "job1", "d1", base.Add(3*time.Minute)),
 		// window 0 cutoff was 10:01:30 -> reject
 		testhelp.Ev("late0", "job1", "d1", base.Add(20*time.Second), base.Add(20*time.Second), 7),
 		// window 1 cutoff was 10:02:30 -> reject
@@ -100,7 +100,7 @@ func TestZeroLatenessBoundary(t *testing.T) {
 	if len(r1.Confirmed) != 0 {
 		t.Fatalf("event at window start must not confirm it immediately: %s", r1)
 	}
-	r2 := g.Ingest(testhelp.Ev("b", "j", "d", base.Add(time.Minute), base.Add(time.Minute), 1))
+	r2 := g.Ingest(testhelp.WM("b", "j", "d", base.Add(time.Minute)))
 	if len(r2.Confirmed) != 1 {
 		t.Fatalf("watermark == window end must close window 0 with zero lateness: %s", r2)
 	}
@@ -127,7 +127,7 @@ func TestDuplicateDoesNotDoubleCount(t *testing.T) {
 	evs := []model.RunEvent{
 		testhelp.Ev("dup1", "j", "d", base, base, 100),
 		testhelp.Ev("dup1", "j", "d", base, base, 100), // exact redelivery
-		testhelp.Ev("close", "j", "d", base.Add(time.Minute), base.Add(time.Minute), 0),
+		testhelp.WM("close", "j", "d", base.Add(time.Minute)),
 	}
 	var rs []model.IngestResult
 	for _, e := range evs {
@@ -192,7 +192,7 @@ func TestEmptyGapWindowsAreConfirmed(t *testing.T) {
 	if len(r.Confirmed) != 0 {
 		t.Fatalf("first event at its window start confirms nothing, got %d", len(r.Confirmed))
 	}
-	r = g.Ingest(testhelp.Ev("jump", "j", "d", base.Add(3*time.Minute), base.Add(3*time.Minute), 0))
+	r = g.Ingest(testhelp.WM("jump", "j", "d", base.Add(3*time.Minute)))
 	// windows 0,1,2 all close; 1 and 2 are explicit empty gap windows.
 	if len(r.Confirmed) != 3 {
 		t.Fatalf("expected 3 confirmed windows (incl. empty gaps), got %d", len(r.Confirmed))

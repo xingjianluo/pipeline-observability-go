@@ -107,20 +107,25 @@ func (g *Ingestor) Ingest(e model.RunEvent) model.IngestResult {
 		return res
 	}
 
-	// Accept: record identity before any state change, then buffer the event.
+	// Accept: record identity before any state change.
 	st.seen[e.EventID] = now
-	pw := st.open[win.Index]
-	if pw == nil {
-		pw = &pendingWindow{w: win}
-		st.open[win.Index] = pw
-	}
-	pw.events = append(pw.events, pendingEvent{event: e, ingestTime: now})
 
 	// First observation seeds the grid: windows strictly before the stream's
 	// first event are unknown to it and are not backfilled as empty windows.
 	if !st.started {
 		st.started = true
 		st.confirmedUpTo = win.Index - 1
+	}
+
+	// Data events are buffered into their window; watermark-only controls
+	// advance the watermark but never enter a window's metric input.
+	if !e.WatermarkOnly {
+		pw := st.open[win.Index]
+		if pw == nil {
+			pw = &pendingWindow{w: win}
+			st.open[win.Index] = pw
+		}
+		pw.events = append(pw.events, pendingEvent{event: e, ingestTime: now})
 	}
 
 	g.advanceWatermark(st, e)
