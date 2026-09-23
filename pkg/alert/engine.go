@@ -2,6 +2,7 @@ package alert
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -159,7 +160,7 @@ func (e *Engine) Evaluate(out model.WindowOutput) []Alert {
 				recovered := ep.alert
 				recovered.RecoveredAt = out.Confirmed
 				delete(e.active, k)
-				e.replaceHistory(recovered)
+				e.appendRecovered(recovered)
 			}
 		}
 	}
@@ -187,17 +188,26 @@ func (e *Engine) ActiveAlerts() []Alert {
 	return out
 }
 
-// Episodes returns the full episode history in firing order; recovered
-// episodes carry their recovery timestamp.
+// Episodes returns every episode (recovered and still active) in a
+// deterministic order: by firing time, then reason. Recovered episodes carry
+// their recovery timestamp; active ones have a zero RecoveredAt.
 func (e *Engine) Episodes() []Alert {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	out := make([]Alert, len(e.history))
-	copy(out, e.history)
-	// Append still-active episodes at the end (history has only closed ones).
+	out := make([]Alert, 0, len(e.history)+len(e.active))
+	out = append(out, e.history...)
 	for _, ep := range e.active {
 		out = append(out, ep.alert)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].FiredAt.Equal(out[j].FiredAt) {
+			return out[i].FiredAt.Before(out[j].FiredAt)
+		}
+		if out[i].WindowStart.Equal(out[j].WindowStart) {
+			return out[i].Reason < out[j].Reason
+		}
+		return out[i].WindowStart.Before(out[j].WindowStart)
+	})
 	return out
 }
 
@@ -229,20 +239,10 @@ func (e *Engine) newAlert(k episodeKey, idx int64, out model.WindowOutput, ch ch
 			ch.describe, ch.observed, ch.unit, ch.threshold, ch.unit,
 			out.Window.Start.Format(time.RFC3339), out.Window.End.Format(time.RFC3339), ids),
 	}
-	e.history = append(e.history, a)
 	return a
 }
 
-// replaceHistory updates the stored fired alert with its recovered copy.
-func (e *Engine) replaceHistory(recovered Alert) {
-	for i := range e.history {
-		if e.history[i].EpisodeID == recovered.EpisodeID {
-			e.history[i] = recovered
-			return
-		}
-	}
-	e.history = append(e.history, recovered)
-}
+func (e *Engine) appendRecovered(a Alert) { e.history = append(e.history, a) }
 
 func thresholdSeconds(d *time.Duration) float64 {
 	if d == nil {

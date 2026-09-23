@@ -39,7 +39,7 @@ func (s Spec) Assign(ts time.Time) Window {
 		panic(err)
 	}
 	epoch := s.epoch()
-	idx := ts.Sub(epoch).Nanoseconds() / int64(s.Size)
+	idx := floorDiv(ts.Sub(epoch).Nanoseconds(), int64(s.Size))
 	start := epoch.Add(time.Duration(idx) * s.Size)
 	return Window{Start: start, End: start.Add(s.Size), Index: idx}
 }
@@ -59,4 +59,14 @@ func (s Spec) Next(w Window) Window {
 // Contains reports whether ts falls inside the half-open window w.
 func (w Window) Contains(ts time.Time) bool {
 	return !ts.Before(w.Start) && ts.Before(w.End)
+}
+
+// floorDiv divides toward negative infinity (unlike Go's truncated integer
+// division), which the event-time grid needs for times before the epoch.
+func floorDiv(a, b int64) int64 {
+	q := a / b
+	if (a%b != 0) && ((a < 0) != (b < 0)) {
+		q--
+	}
+	return q
 }
