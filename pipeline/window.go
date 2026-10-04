@@ -55,6 +55,11 @@ type Window struct {
 	ID      WindowID
 	State   WindowState
 	Metrics Metrics
+	// Empty 为 true 表示这是一个已确认的“空窗口”：窗口期内没有任何事件上报。
+	// 空窗口的指标全部为零值，且与“有数据但数值为零”的窗口（Empty=false 且
+	// EventCount>0）明确区分。空窗口只在确认时由引擎补物化，用于让空闲时间段
+	// 成为被明确确认的有效窗口。
+	Empty bool
 
 	events []Event
 	seen   map[string]struct{}
@@ -65,6 +70,8 @@ type WindowView struct {
 	ID      WindowID
 	State   WindowState
 	Metrics Metrics
+	// Empty 见 Window.Empty；只有已确认窗口才可能是空窗口。
+	Empty bool
 }
 
 func newWindow(id WindowID) *Window {
@@ -75,7 +82,9 @@ func newWindow(id WindowID) *Window {
 	}
 }
 
-func (w *Window) view() WindowView { return WindowView{ID: w.ID, State: w.State, Metrics: w.Metrics} }
+func (w *Window) view() WindowView {
+	return WindowView{ID: w.ID, State: w.State, Metrics: w.Metrics, Empty: w.Empty}
+}
 
 // add 将事件纳入窗口聚合。返回 false 表示重复事件（EventID 已见过），被幂等忽略。
 // 只允许在 WindowOpen 状态下调用。
@@ -109,6 +118,7 @@ func (w *Window) finalize() {
 	if w.State == WindowClosed {
 		return
 	}
+	w.Empty = len(w.events) == 0
 	m := Metrics{EventCount: int64(len(w.events))}
 
 	var latestSuccessIngest time.Time

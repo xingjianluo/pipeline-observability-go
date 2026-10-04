@@ -19,17 +19,30 @@ func main() {
 	now := func() time.Time { return clock }
 
 	eng := pipeline.NewEngine(pipeline.Config{
-		WindowSize:      time.Minute,
-		AllowedLateness: 10 * time.Second,
-		Now:             now,
+		WindowSize:       time.Minute,
+		AllowedLateness:  10 * time.Second,
+		MaxClosedWindows: 4, // 每条流最多保留 4 个已确认窗口，超出回收最旧的
+		Now:              now,
 	})
+	// 同一作业+数据集挂多条规则：不同维度 + 同维度两档阈值，各自独立判定与抑制。
 	eng.AddRule(pipeline.AlertRule{
+		RuleID:               "freshness-latency",
 		Job:                  "orders-etl",
 		Dataset:              "orders_daily",
 		MaxFreshnessLag:      5 * time.Second,
 		MaxProcessingLatency: 15 * time.Second,
-		MinThroughputPerSec:  50,
-		MaxFailureRate:       0, // 0 表示不启用失败率检查
+	})
+	eng.AddRule(pipeline.AlertRule{
+		RuleID:              "throughput-warn",
+		Job:                 "orders-etl",
+		Dataset:             "orders_daily",
+		MinThroughputPerSec: 50,
+	})
+	eng.AddRule(pipeline.AlertRule{
+		RuleID:              "throughput-crit",
+		Job:                 "orders-etl",
+		Dataset:             "orders_daily",
+		MinThroughputPerSec: 200,
 	})
 
 	const job, dataset = "orders-etl", "orders_daily"
@@ -70,20 +83,27 @@ func main() {
 	stale := ev("stale-w0", pipeline.StatusSuccess, 15*time.Second, 3*time.Minute, 999)
 	ingest(eng, &clock, stale)
 	advance(eng, &clock, base.Add(3*time.Minute+10*time.Second))
+	// 9) 空闲期：12:03~12:07 没有任何事件上报。推进水位后这些时间段被确认为
+	//    空窗口（零值 + Empty 标识），并作为恢复点打断进行中的故障区间。
+	advance(eng, &clock, base.Add(7*time.Minute+10*time.Second))
+	// 10) 空闲之后再次低吞吐：故障区间已被空闲打断，应重新触发（而不是继续抑制）。
+	ingest(eng, &clock, ev("w7-bad", pipeline.StatusSuccess, 7*60*time.Second+5*time.Second, 7*60*time.Second+6*time.Second, 100))
+	advance(eng, &clock, base.Add(8*time.Minute+10*time.Second))
 
-	fmt.Println("\n=== 已确认窗口指标（随事件推进冻结，不回退）===")
+	fmt.Println("\n=== 已确认窗口指标（随事件推进冻结，不回退；Empty=空闲空窗口）===")
 	for _, w := range eng.Windows(job, dataset) {
-		fmt.Printf("窗口 [%s,%s) state=%s\n", w.ID.Start.Format("15:04:05"), w.ID.End.Format("15:04:05"), w.State)
+		fmt.Printf("窗口 [%s,%s) state=%s empty=%v\n", w.ID.Start.Format("15:04:05"), w.ID.End.Format("15:04:05"), w.State, w.Empty)
 		fmt.Printf("  事件=%d 成功=%d 失败=%d 行数=%d 吞吐=%.2f/s 成功%%=%.2f\n",
 			w.Metrics.EventCount, w.Metrics.SuccessCount, w.Metrics.FailedCount,
 			w.Metrics.Rows, w.Metrics.ThroughputPerSec, w.Metrics.SuccessRate*100)
 		fmt.Printf("  新鲜度滞后=%s 最大处理延迟=%s\n", w.Metrics.FreshnessLag, w.Metrics.MaxProcessingLatency)
 	}
+	fmt.Printf("（保留上限 4 个已确认窗口，已回收 %d 个）\n", eng.EvictedWindows(job, dataset))
 
-	fmt.Println("\n=== 告警（同一持续故障区间只触发一次，恢复后可重新触发）===")
+	fmt.Println("\n=== 告警（多规则独立判定；同一持续故障区间只触发一次，恢复/空闲后可重新触发）===")
 	for _, a := range eng.Alerts(job, dataset) {
-		fmt.Printf("- [%s] 窗口[%s,%s) observed=%.4f threshold=%.4f\n    依据: %s\n",
-			a.Kind, a.Window.Start.Format("15:04:05"), a.Window.End.Format("15:04:05"),
+		fmt.Printf("- [%s] rule=%s 窗口[%s,%s) observed=%.4f threshold=%.4f\n    依据: %s\n",
+			a.Kind, a.RuleID, a.Window.Start.Format("15:04:05"), a.Window.End.Format("15:04:05"),
 			a.Observed, a.Threshold, indent(a.Reason))
 	}
 
