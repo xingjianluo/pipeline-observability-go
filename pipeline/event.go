@@ -41,6 +41,9 @@ const (
 	RejectLateBeyondTolerance RejectReason = "late_beyond_tolerance"
 	// RejectInvalid 事件缺少必要字段或字段自相矛盾，无法参与计算。
 	RejectInvalid RejectReason = "invalid_event"
+	// RejectWindowReclaimed 事件归属窗口早已确认，并因保留容量被回收，
+	// 迟到/重复事件都不能再写回（回收过程可解释、不静默吞掉）。
+	RejectWindowReclaimed RejectReason = "window_reclaimed"
 )
 
 // IngestResult 是单条事件摄入的判定结果，保证每条输入都有明确去向。

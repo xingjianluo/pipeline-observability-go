@@ -70,10 +70,20 @@ func main() {
 	stale := ev("stale-w0", pipeline.StatusSuccess, 15*time.Second, 3*time.Minute, 999)
 	ingest(eng, &clock, stale)
 	advance(eng, &clock, base.Add(3*time.Minute+10*time.Second))
+	// 9) 空闲时段（12:03、12:04 无任何事件）：水位越过确认点后补确认为空窗口，
+	//    作为恢复点打断 w2 的持续故障区间；w5 再次低吞吐须重新触发告警。
+	advance(eng, &clock, base.Add(5*time.Minute+10*time.Second))
+	ingest(eng, &clock, ev("w5-bad", pipeline.StatusSuccess, 5*time.Minute+5*time.Second,
+		5*time.Minute+8*time.Second, 100))
+	advance(eng, &clock, base.Add(6*time.Minute+10*time.Second))
 
-	fmt.Println("\n=== 已确认窗口指标（随事件推进冻结，不回退）===")
+	fmt.Println("\n=== 已确认窗口指标（随事件推进冻结，不回退；空闲时段补确认为空窗口）===")
 	for _, w := range eng.Windows(job, dataset) {
-		fmt.Printf("窗口 [%s,%s) state=%s\n", w.ID.Start.Format("15:04:05"), w.ID.End.Format("15:04:05"), w.State)
+		idle := ""
+		if w.Idle {
+			idle = " [空闲空窗口：无事件上报，已确认；作为告警恢复点]"
+		}
+		fmt.Printf("窗口 [%s,%s) state=%s%s\n", w.ID.Start.Format("15:04:05"), w.ID.End.Format("15:04:05"), w.State, idle)
 		fmt.Printf("  事件=%d 成功=%d 失败=%d 行数=%d 吞吐=%.2f/s 成功%%=%.2f\n",
 			w.Metrics.EventCount, w.Metrics.SuccessCount, w.Metrics.FailedCount,
 			w.Metrics.Rows, w.Metrics.ThroughputPerSec, w.Metrics.SuccessRate*100)

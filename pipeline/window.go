@@ -55,6 +55,10 @@ type Window struct {
 	ID      WindowID
 	State   WindowState
 	Metrics Metrics
+	// Idle 为 true 表示这是一个由引擎在空闲时间段补确认的空窗口：
+	// 该窗口在事件时间上真实经过，但没有任何事件落入。
+	// 与“有事件但观测值为零”的窗口通过该标记区分。
+	Idle bool
 
 	events []Event
 	seen   map[string]struct{}
@@ -65,6 +69,8 @@ type WindowView struct {
 	ID      WindowID
 	State   WindowState
 	Metrics Metrics
+	// Idle 为 true 表示该窗口没有任何事件上报（经确认的空窗口）。
+	Idle bool
 }
 
 func newWindow(id WindowID) *Window {
@@ -75,7 +81,9 @@ func newWindow(id WindowID) *Window {
 	}
 }
 
-func (w *Window) view() WindowView { return WindowView{ID: w.ID, State: w.State, Metrics: w.Metrics} }
+func (w *Window) view() WindowView {
+	return WindowView{ID: w.ID, State: w.State, Metrics: w.Metrics, Idle: w.Idle}
+}
 
 // add 将事件纳入窗口聚合。返回 false 表示重复事件（EventID 已见过），被幂等忽略。
 // 只允许在 WindowOpen 状态下调用。
